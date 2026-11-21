@@ -85,6 +85,14 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { dy: { type: 'number' } }, required: ['dy'] } },
   { name: 'browser_back', description: 'Bir önceki sayfaya döner.',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'browser_tabs', description: 'Açık sekmeleri listeler (sıra, başlık, adres, hangisi aktif).',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'browser_new_tab', description: 'Yeni sekme açar. url verilirse o adresi yeni sekmede yükler.',
+    inputSchema: { type: 'object', properties: { url: { type: 'string' } } } },
+  { name: 'browser_switch_tab', description: 'Sıra numarasıyla bir sekmeye geçer. Diğer araçlar aktif sekmede çalışır.',
+    inputSchema: { type: 'object', properties: { index: { type: 'number' } }, required: ['index'] } },
+  { name: 'browser_close_tab', description: 'Bir sekmeyi kapatır. index verilmezse aktif sekme kapanır.',
+    inputSchema: { type: 'object', properties: { index: { type: 'number' } } } },
   { name: 'browser_screenshot', description: 'Tarayıcı görünümünün ekran görüntüsünü alır.',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'browser_eval', description: 'Sayfada JavaScript çalıştırır. Kod bir fonksiyon gövdesidir, sonucu return ile döndür.',
@@ -94,7 +102,7 @@ const TOOLS = [
 const ACTION = {
   browser_navigate: 'navigate', browser_info: 'info', browser_get_text: 'text', browser_get_links: 'links',
   browser_report: 'report', browser_click: 'click', browser_type: 'type', browser_scroll: 'scroll',
-  browser_back: 'back', browser_screenshot: 'screenshot', browser_eval: 'eval'
+  browser_back: 'back', browser_tabs: 'tabs', browser_new_tab: 'new_tab', browser_switch_tab: 'switch_tab', browser_close_tab: 'close_tab', browser_screenshot: 'screenshot', browser_eval: 'eval'
 };
 
 async function callTool(name, args) {

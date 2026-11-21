@@ -13,6 +13,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Message
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
@@ -25,11 +26,13 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.ByteArrayOutputStream
@@ -44,7 +47,17 @@ import java.util.concurrent.TimeUnit
  */
 class MainActivity : Activity() {
 
-    private lateinit var web: WebView
+    private class Tab(val web: WebView) {
+        var title: String = ""
+        var url: String = ""
+    }
+
+    private val tabs = mutableListOf<Tab>()
+    private var active = 0
+    private lateinit var holder: FrameLayout
+    private lateinit var strip: LinearLayout
+    @Volatile private var navTarget: WebView? = null
+    private val web: WebView get() = tabs[active].web
     private lateinit var urlBox: EditText
     private lateinit var status: TextView
     private lateinit var dot: View
@@ -91,7 +104,9 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (web.canGoBack()) web.goBack() else super.onBackPressed()
+        if (web.canGoBack()) web.goBack()
+        else if (tabs.size > 1) closeTabAt(active)
+        else super.onBackPressed()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -168,46 +183,155 @@ class MainActivity : Activity() {
         statusRow.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)))
         statusRow.addView(status)
 
-        web = WebView(this)
-        web.settings.javaScriptEnabled = true
-        web.settings.domStorageEnabled = true
-        web.webChromeClient = object : WebChromeClient() {
+        strip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(8), dp(2), dp(8), dp(6))
+        }
+        val stripScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(strip)
+        }
+        holder = FrameLayout(this)
+
+        root.addView(bar)
+        root.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3)))
+        root.addView(statusRow)
+        root.addView(stripScroll)
+        root.addView(holder, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+
+        newTab(null)
+    }
+
+    private fun isActive(v: WebView?): Boolean = tabs.isNotEmpty() && tabs[active].web === v
+
+    private fun createWebView(): WebView {
+        val w = WebView(this)
+        w.settings.javaScriptEnabled = true
+        w.settings.domStorageEnabled = true
+        w.settings.setSupportMultipleWindows(true)
+        w.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                if (!isActive(view)) return
                 progress.progress = newProgress
                 progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.INVISIBLE
             }
+
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                tabs.firstOrNull { it.web === view }?.let { it.title = title ?: ""; renderStrip() }
+            }
+
+            // Sitelerin açtığı yeni pencereler (target=_blank, window.open) yeni sekme olur.
+            override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
+                val t = newTab(null, blank = true)
+                (resultMsg?.obj as? WebView.WebViewTransport)?.webView = t.web
+                resultMsg?.sendToTarget()
+                return true
+            }
         }
-        web.webViewClient = object : WebViewClient() {
+        w.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val sc = request?.url?.scheme ?: return true
                 return sc != "http" && sc != "https"
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                showUrl(url)
+                tabs.firstOrNull { it.web === view }?.url = url ?: ""
+                if (isActive(view)) showUrl(url)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                showUrl(url)
-                navLatch?.countDown()
+                tabs.firstOrNull { it.web === view }?.url = url ?: ""
+                if (isActive(view)) showUrl(url)
+                renderStrip()
+                if (view === navTarget) navLatch?.countDown()
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                if (request?.isForMainFrame == true) navLatch?.countDown()
+                if (request?.isForMainFrame == true && view === navTarget) navLatch?.countDown()
             }
         }
         // Güvenlik: dosya indirmeleri engellenir.
-        web.setDownloadListener { url, _, _, _, _ ->
+        w.setDownloadListener { url, _, _, _, _ ->
             Toast.makeText(this, "İndirme engellendi: $url", Toast.LENGTH_LONG).show()
         }
+        return w
+    }
 
-        root.addView(bar)
-        root.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3)))
-        root.addView(statusRow)
-        root.addView(web, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        setContentView(root)
+    private fun newTab(url: String?, blank: Boolean = false): Tab {
+        val t = Tab(createWebView())
+        tabs.add(t)
+        holder.addView(t.web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        selectTab(tabs.size - 1)
+        if (url != null) t.web.loadUrl(url)
+        else if (!blank) t.web.loadDataWithBaseURL(null, WELCOME_HTML, "text/html", "utf-8", null)
+        return t
+    }
 
-        web.loadDataWithBaseURL(null, WELCOME_HTML, "text/html", "utf-8", null)
+    private fun selectTab(i: Int) {
+        active = i
+        tabs.forEachIndexed { idx, t -> t.web.visibility = if (idx == i) View.VISIBLE else View.GONE }
+        showUrl(tabs[i].url)
+        renderStrip()
+    }
+
+    private fun closeTabAt(i: Int) {
+        if (i !in tabs.indices) return
+        if (tabs.size == 1) {
+            tabs[0].web.loadDataWithBaseURL(null, WELCOME_HTML, "text/html", "utf-8", null)
+            tabs[0].url = ""
+            tabs[0].title = ""
+            showUrl(null)
+            renderStrip()
+            return
+        }
+        val t = tabs.removeAt(i)
+        holder.removeView(t.web)
+        t.web.destroy()
+        val next = when {
+            i < active -> active - 1
+            i == active -> minOf(i, tabs.size - 1)
+            else -> active
+        }
+        selectTab(next)
+    }
+
+    private fun renderStrip() {
+        runOnUiThread {
+            strip.removeAllViews()
+            tabs.forEachIndexed { i, t ->
+                val chip = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = rounded(if (i == active) Color.WHITE else FIELD, 10, if (i == active) ACCENT else null)
+                    setPadding(dp(12), dp(6), dp(6), dp(6))
+                    setOnClickListener { val idx = tabs.indexOf(t); if (idx >= 0) selectTab(idx) }
+                }
+                val label = if (t.title.isNotBlank()) t.title else if (t.url.isNotBlank()) Uri.parse(t.url).host ?: t.url else "Yeni sekme"
+                chip.addView(TextView(this).apply {
+                    text = label.take(18)
+                    textSize = 13f
+                    setTextColor(INK)
+                    maxLines = 1
+                })
+                chip.addView(TextView(this).apply {
+                    text = "×"
+                    textSize = 16f
+                    setTextColor(MUTED)
+                    setPadding(dp(10), 0, dp(6), 0)
+                    setOnClickListener { closeTabAt(tabs.indexOf(t)) }
+                })
+                strip.addView(chip, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) })
+            }
+            strip.addView(TextView(this).apply {
+                text = "+"
+                textSize = 20f
+                setTextColor(ACCENT)
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(2), dp(14), dp(2))
+                setOnClickListener { newTab(null) }
+            })
+        }
     }
 
     private fun showUrl(url: String?) {
@@ -346,6 +470,29 @@ class MainActivity : Activity() {
                     if (moved) "Geri gidildi" else "Geri gidilecek sayfa yok"
                 }
                 "screenshot" -> screenshot()
+                "tabs" -> onUi {
+                    JSONArray(tabs.mapIndexed { i, t ->
+                        JSONObject().put("index", i).put("title", t.title).put("url", t.url).put("active", i == active)
+                    }).toString()
+                }
+                "new_tab" -> {
+                    onUi { newTab(null) }
+                    val u = args.optString("url", "")
+                    if (u.isEmpty()) "Yeni sekme açıldı (sıra ${tabs.size - 1})"
+                    else "Sekme ${tabs.size - 1}: " + navigate(u)
+                }
+                "switch_tab" -> onUi {
+                    val i = args.getInt("index")
+                    if (i !in tabs.indices) throw IllegalArgumentException("Böyle bir sekme yok")
+                    selectTab(i)
+                    "Sekme $i: ${tabs[i].title} | ${tabs[i].url}"
+                }
+                "close_tab" -> onUi {
+                    val i = args.optInt("index", active)
+                    if (i !in tabs.indices) throw IllegalArgumentException("Böyle bir sekme yok")
+                    closeTabAt(i)
+                    "Sekme kapatıldı. Kalan: ${tabs.size}"
+                }
                 else -> throw IllegalArgumentException("Bilinmeyen komut")
             }
             out.put("ok", true).put("data", data)
@@ -378,7 +525,7 @@ class MainActivity : Activity() {
         }
         val latch = CountDownLatch(1)
         navLatch = latch
-        runOnUiThread { web.loadUrl(u) }
+        runOnUiThread { navTarget = web; web.loadUrl(u) }
         latch.await(25, TimeUnit.SECONDS)
         return onUi { "${web.title ?: ""} | ${web.url ?: ""}" }
     }
