@@ -51,7 +51,7 @@ function dispatchToWaiter() {
 
 function callDevice(action, args, timeoutMs) {
   return new Promise((resolve, reject) => {
-    if (Date.now() - lastSeen > 45000) {
+    if (Date.now() - lastSeen > 75000) {
       reject(new Error('Telefondaki uygulama bağlı değil. Uygulamayı açık tut ve ayarları kontrol et.'));
       return;
     }
@@ -130,7 +130,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const parts = url.pathname.split('/').filter(Boolean);
   try {
-    if (url.pathname === '/healthz') return send(res, 200, { ok: true, deviceConnected: Date.now() - lastSeen < 45000 });
+    if (url.pathname === '/healthz') return send(res, 200, { ok: true, deviceConnected: Date.now() - lastSeen < 75000 });
     if (parts.length === 0) { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Cloude Browser aracı sunucusu çalışıyor.'); }
 
     // MCP

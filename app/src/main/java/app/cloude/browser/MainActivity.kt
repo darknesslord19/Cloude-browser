@@ -8,7 +8,13 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.webkit.WebChromeClient
 import android.widget.ProgressBar
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Base64
 import android.view.Gravity
 import android.view.KeyEvent
@@ -53,11 +59,32 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildUi()
+        keepAlive()
         Thread { pollLoop() }.apply { isDaemon = true; start() }
         if (prefs.getString("link", "").isNullOrEmpty()) showSettings()
     }
 
+    /** Arka planda bağlantının kopmaması için: ön plan hizmeti, bildirim izni ve pil muafiyeti. */
+    private fun keepAlive() {
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+            }
+            val i = Intent(this, KeepAliveService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName) && !prefs.getBoolean("bat_asked", false)) {
+                prefs.edit().putBoolean("bat_asked", true).apply()
+                startActivity(
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+                )
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     override fun onDestroy() {
+        stopService(Intent(this, KeepAliveService::class.java))
         running = false
         super.onDestroy()
     }
@@ -260,8 +287,10 @@ class MainActivity : Activity() {
             val token = parsed.second
             try {
                 val c = URL("$base/device/$token/poll").openConnection() as HttpURLConnection
-                c.connectTimeout = 10000
-                c.readTimeout = 40000
+                c.connectTimeout = 15000
+                c.readTimeout = 45000
+                c.useCaches = false
+                c.setRequestProperty("Connection", "close")
                 val code = c.responseCode
                 if (code == 200) {
                     setStatus("Bağlı, komut çalışıyor")
@@ -277,8 +306,8 @@ class MainActivity : Activity() {
                 }
                 c.disconnect()
             } catch (e: Exception) {
-                setStatus("Bağlantı yok")
-                nap(3000)
+                setStatus("Bağlantı yok (" + e.javaClass.simpleName + ")")
+                nap(2000)
             }
         }
     }
