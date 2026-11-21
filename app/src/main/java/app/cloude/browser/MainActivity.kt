@@ -20,6 +20,7 @@ import android.util.Base64
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.webkit.WebResourceError
@@ -27,7 +28,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
+import android.widget.ScrollView
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -55,7 +56,6 @@ class MainActivity : Activity() {
     private val tabs = mutableListOf<Tab>()
     private var active = 0
     private lateinit var holder: FrameLayout
-    private lateinit var strip: LinearLayout
     @Volatile private var navTarget: WebView? = null
     private val web: WebView get() = tabs[active].web
     private lateinit var urlBox: EditText
@@ -132,11 +132,18 @@ class MainActivity : Activity() {
     private fun buildUi() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
 
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            visibility = View.INVISIBLE
+            progressDrawable.setColorFilter(ACCENT, android.graphics.PorterDuff.Mode.SRC_IN)
+        }
+
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(6))
+            setPadding(dp(8), dp(8), dp(8), dp(2))
         }
+        dot = View(this).apply { background = rounded(MUTED, 4) }
         val back = flatButton("‹") { if (web.canGoBack()) web.goBack() }
         urlBox = EditText(this).apply {
             hint = "Adres yaz ya da ara"
@@ -154,49 +161,30 @@ class MainActivity : Activity() {
             }
         }
         val go = flatButton("→") { openFromBox() }
+        val tabsBtn = flatButton("▤") { showTabSheet() }
         val cfg = flatButton("⚙") { showSettings() }
         bar.addView(back)
+        bar.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginStart = dp(4); marginEnd = dp(8) })
         bar.addView(urlBox, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = dp(4); marginEnd = dp(4)
+            marginEnd = dp(4)
         })
         bar.addView(go)
+        bar.addView(tabsBtn)
         bar.addView(cfg)
 
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            visibility = View.INVISIBLE
-            progressDrawable.setColorFilter(ACCENT, android.graphics.PorterDuff.Mode.SRC_IN)
-        }
-
-        val statusRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(4), dp(14), dp(6))
-        }
-        dot = View(this).apply { background = rounded(MUTED, 4) }
         status = TextView(this).apply {
             text = "Bağlı değil"
-            textSize = 12f
+            textSize = 11f
             setTextColor(MUTED)
-            setPadding(dp(8), 0, 0, 0)
+            gravity = Gravity.START
+            setPadding(dp(14), 0, dp(14), dp(4))
         }
-        statusRow.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)))
-        statusRow.addView(status)
 
-        strip = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(2), dp(8), dp(6))
-        }
-        val stripScroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(strip)
-        }
         holder = FrameLayout(this)
 
         root.addView(bar)
         root.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3)))
-        root.addView(statusRow)
-        root.addView(stripScroll)
+        root.addView(status)
         root.addView(holder, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
@@ -296,42 +284,77 @@ class MainActivity : Activity() {
         selectTab(next)
     }
 
+    /** Sekme çubuğu yerine: açık sekmeler alttan çıkan bir çekmecede listelenir. */
+    private var tabSheet: android.app.Dialog? = null
+
     private fun renderStrip() {
-        runOnUiThread {
-            strip.removeAllViews()
-            tabs.forEachIndexed { i, t ->
-                val chip = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    background = rounded(if (i == active) Color.WHITE else FIELD, 10, if (i == active) ACCENT else null)
-                    setPadding(dp(12), dp(6), dp(6), dp(6))
-                    setOnClickListener { val idx = tabs.indexOf(t); if (idx >= 0) selectTab(idx) }
-                }
-                val label = if (t.title.isNotBlank()) t.title else if (t.url.isNotBlank()) Uri.parse(t.url).host ?: t.url else "Yeni sekme"
-                chip.addView(TextView(this).apply {
-                    text = label.take(18)
-                    textSize = 13f
-                    setTextColor(INK)
-                    maxLines = 1
-                })
-                chip.addView(TextView(this).apply {
-                    text = "×"
-                    textSize = 16f
-                    setTextColor(MUTED)
-                    setPadding(dp(10), 0, dp(6), 0)
-                    setOnClickListener { closeTabAt(tabs.indexOf(t)) }
-                })
-                strip.addView(chip, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) })
-            }
-            strip.addView(TextView(this).apply {
-                text = "+"
-                textSize = 20f
-                setTextColor(ACCENT)
-                gravity = Gravity.CENTER
-                setPadding(dp(14), dp(2), dp(14), dp(2))
-                setOnClickListener { newTab(null) }
-            })
+        // Sekme listesi yalnızca çekmece açıkken güncellenir; bkz. showTabSheet().
+        if (tabSheet?.isShowing == true) showTabSheet()
+    }
+
+    private fun showTabSheet() {
+        tabSheet?.dismiss()
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(16), dp(8), dp(8))
         }
+        list.addView(TextView(this).apply {
+            text = "Sekmeler"
+            textSize = 15f
+            setTextColor(MUTED)
+            setPadding(dp(12), 0, dp(12), dp(10))
+        })
+        val scroll = ScrollView(this).apply {
+            addView(list)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        tabs.forEachIndexed { i, t ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(if (i == active) FIELD else Color.TRANSPARENT, 10)
+                setPadding(dp(12), dp(12), dp(8), dp(12))
+                setOnClickListener {
+                    selectTab(i)
+                    tabSheet?.dismiss()
+                }
+            }
+            val label = if (t.title.isNotBlank()) t.title else if (t.url.isNotBlank()) Uri.parse(t.url).host ?: t.url else "Yeni sekme"
+            row.addView(TextView(this).apply {
+                text = label
+                textSize = 14f
+                setTextColor(INK)
+                maxLines = 1
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(TextView(this).apply {
+                text = "×"
+                textSize = 18f
+                setTextColor(MUTED)
+                setPadding(dp(14), 0, dp(6), 0)
+                setOnClickListener { closeTabAt(i); showTabSheet() }
+            })
+            list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(4) })
+        }
+        list.addView(TextView(this).apply {
+            text = "+  Yeni sekme"
+            textSize = 14f
+            setTextColor(ACCENT)
+            setPadding(dp(12), dp(14), dp(12), dp(4))
+            setOnClickListener { newTab(null); tabSheet?.dismiss() }
+        })
+
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar)
+        dialog.setContentView(scroll)
+        dialog.window?.let { w ->
+            w.setBackgroundDrawable(rounded(BG, 16).apply {
+                setStroke(dp(1), FIELD)
+            })
+            w.setGravity(Gravity.BOTTOM)
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            w.setWindowAnimations(android.R.style.Animation_InputMethod)
+        }
+        tabSheet = dialog
+        dialog.show()
     }
 
     private fun showUrl(url: String?) {
