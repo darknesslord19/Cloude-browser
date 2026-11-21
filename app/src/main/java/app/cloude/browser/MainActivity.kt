@@ -54,7 +54,7 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildUi()
         Thread { pollLoop() }.apply { isDaemon = true; start() }
-        if (prefs.getString("relay", "").isNullOrEmpty()) showSettings()
+        if (prefs.getString("link", "").isNullOrEmpty()) showSettings()
     }
 
     override fun onDestroy() {
@@ -200,26 +200,37 @@ class MainActivity : Activity() {
 
     private fun showSettings() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(10), dp(20), 0) }
-        val relay = EditText(this).apply {
-            hint = "Aracı sunucu adresi (https://...)"
-            setText(prefs.getString("relay", ""))
+        val link = EditText(this).apply {
+            hint = "https://sunucun.onrender.com/mcp/ANAHTAR"
+            setText(prefs.getString("link", ""))
             setSingleLine(true)
+            textSize = 13f
         }
-        val token = EditText(this).apply {
-            hint = "Gizli anahtar (TOKEN)"
-            setText(prefs.getString("token", ""))
-            setSingleLine(true)
+        val help = TextView(this).apply {
+            text = "Claude'a bağlayıcı olarak eklediğin adresin aynısını yapıştır."
+            textSize = 12f
+            setTextColor(MUTED)
+            setPadding(0, dp(8), 0, 0)
         }
-        box.addView(relay)
-        box.addView(token)
+        box.addView(link)
+        box.addView(help)
         AlertDialog.Builder(this)
-            .setTitle("Bağlantı ayarları")
+            .setTitle("Bağlantı")
             .setView(box)
             .setPositiveButton("Kaydet") { _, _ ->
-                prefs.edit().putString("relay", relay.text.toString().trim()).putString("token", token.text.toString().trim()).apply()
+                prefs.edit().putString("link", link.text.toString().trim()).apply()
             }
             .setNegativeButton("İptal", null)
             .show()
+    }
+
+    /** "https://host/mcp/ANAHTAR" adresini (sunucu, anahtar) çiftine ayırır. */
+    private fun parseLink(link: String): Pair<String, String>? {
+        val i = link.indexOf("/mcp/")
+        if (i < 0) return null
+        val base = link.substring(0, i).trimEnd('/')
+        val token = link.substring(i + 5).trim('/').substringBefore('/').substringBefore('?')
+        return if (base.startsWith("http") && token.isNotEmpty()) Pair(base, token) else null
     }
 
     private fun setStatus(t: String) {
@@ -239,13 +250,14 @@ class MainActivity : Activity() {
 
     private fun pollLoop() {
         while (running) {
-            val base = (prefs.getString("relay", "") ?: "").trim().trimEnd('/')
-            val token = (prefs.getString("token", "") ?: "").trim()
-            if (base.isEmpty() || token.isEmpty()) {
+            val parsed = parseLink((prefs.getString("link", "") ?: "").trim())
+            if (parsed == null) {
                 setStatus("Ayar gerekli (⚙)")
                 nap(2000)
                 continue
             }
+            val base = parsed.first
+            val token = parsed.second
             try {
                 val c = URL("$base/device/$token/poll").openConnection() as HttpURLConnection
                 c.connectTimeout = 10000
@@ -387,7 +399,7 @@ class MainActivity : Activity() {
             </style></head><body>
               <h1>Cloude Browser</h1>
               <p>Claude'un senin adına açıp inceleyebildiği tarayıcı.</p>
-              <div class="card"><b>1.</b> Sağ üstteki ⚙ düğmesinden sunucu adresini ve anahtarı gir.<br>
+              <div class="card"><b>1.</b> ⚙ düğmesine bas ve bağlayıcı adresini yapıştır.<br>
               <b>2.</b> Üstte yeşil nokta "Bağlı" göstermeli.<br>
               <b>3.</b> Claude'a "şu siteyi aç ve analiz et" de.</div>
               <p style="margin-top:24px;font-size:13px">İndirmeler engellenir, yalnızca http ve https adresleri açılır.</p>

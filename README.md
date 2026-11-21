@@ -16,26 +16,24 @@ Claude  --MCP-->  aracı sunucu  <--yoklama--  telefondaki uygulama
 Depoya push edince Actions APK'yı derler. **Releases > latest** sayfasından `cloude-browser.apk` dosyasını telefona indirip kur ("bilinmeyen kaynaklardan kuruluma izin ver" gerekebilir).
 
 ### 2. Aracı sunucuyu yayınla
-`relay/` klasörü Docker ile çalışır (Render, Fly.io, Railway gibi bir yerde ücretsiz katman yeterli).
-Örnek Render ayarı: **New > Web Service**, bu depo, **Root Directory:** `relay`, **Runtime:** Docker.
-Ortam değişkeni olarak uzun, rastgele bir `TOKEN` ekle (örnek: `openssl rand -hex 24`).
+[![Render'a yükle](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/darknesslord19/Cloude-browser)
 
-Yerelde denemek için: `cd relay && TOKEN=gizli node server.js`
+Düğmeye bas ve Render hesabınla onayla. `render.yaml` sunucuyu kurar ve `TOKEN` değerini **kendisi üretir**.
+Kurulum bitince Render panelinde **Environment** bölümünden `TOKEN` değerini kopyala.
+
+Bağlantı adresin şu olur (iki yerde de aynısını kullanacaksın):
+
+```
+https://cloude-browser-relay.onrender.com/mcp/<TOKEN>
+```
+
+Başka bir yerde çalıştırmak istersen: `relay/` klasörü Docker ile ya da `TOKEN=gizli node server.js` ile çalışır.
 
 ### 3. Uygulamayı bağla
-Uygulamayı aç, ⚙ düğmesine bas:
-- **Aracı sunucu adresi:** `https://senin-sunucun.onrender.com`
-- **Gizli anahtar:** `TOKEN` değeri
-
-Üstteki durum satırında "Bağlı" yazmalı. Uygulama açık ve ekran uyanık olmalı.
+Uygulamayı aç, ⚙ düğmesine bas ve yukarıdaki bağlantı adresini yapıştır. Üstte yeşil nokta "Bağlı" göstermeli. Uygulama açık ve ekran uyanık olmalı.
 
 ### 4. Claude'a ekle
-claude.ai > Ayarlar > Bağlayıcılar > Özel bağlayıcı ekle (hesap planına göre değişebilir):
-
-```
-https://senin-sunucun.onrender.com/mcp/<TOKEN>
-```
-
+claude.ai > Ayarlar > Bağlayıcılar > Özel bağlayıcı ekle (hesap planına göre değişebilir): aynı bağlantı adresini yapıştır.
 Sonra Claude'a "şu siteyi tarayıcıdan aç ve analiz et" demen yeterli.
 
 ## Claude'un kullanabildiği araçlar

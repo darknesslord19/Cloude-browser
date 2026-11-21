@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: cloude-browser-relay
+    runtime: docker
+    rootDir: relay
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: TOKEN
+        generateValue: true
